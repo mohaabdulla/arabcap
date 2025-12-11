@@ -1,0 +1,310 @@
+"""
+XGBoost Price Prediction Model for Commodities
+Includes feature engineering, training, and prediction capabilities
+"""
+
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import xgboost as xgb
+import joblib
+import os
+from ta.trend import SMAIndicator, EMAIndicator, MACD
+from ta.momentum import RSIIndicator
+from ta.volatility import BollingerBands
+
+
+class CommodityPricePredictor:
+    """XGBoost-based commodity price prediction model"""
+    
+    def __init__(self, commodity_name, model_dir='models'):
+        self.commodity_name = commodity_name
+        self.model_dir = model_dir
+        os.makedirs(model_dir, exist_ok=True)
+        
+        self.model = None
+        self.scaler = StandardScaler()
+        self.feature_columns = None
+        
+    def create_features(self, df):
+        """
+        Create technical indicators and time-based features
+        
+        Parameters:
+        -----------
+        df : pd.DataFrame
+            DataFrame with OHLCV data
+        
+        Returns:
+        --------
+        pd.DataFrame
+            DataFrame with added features
+        """
+        data = df.copy()
+        
+        # Ensure we have the required columns
+        if 'Close' not in data.columns:
+            raise ValueError("DataFrame must contain 'Close' column")
+        
+        # Price-based features
+        data['Returns'] = data['Close'].pct_change()
+        data['Log_Returns'] = np.log(data['Close'] / data['Close'].shift(1))
+        
+        # High-Low range
+        if 'High' in data.columns and 'Low' in data.columns:
+            data['Price_Range'] = data['High'] - data['Low']
+            data['Price_Range_Pct'] = (data['High'] - data['Low']) / data['Close']
+        
+        # Moving averages - using pandas for reliability
+        for window in [5, 10, 20, 50, 100, 200]:
+            data[f'SMA_{window}'] = data['Close'].rolling(window=window).mean()
+            data[f'EMA_{window}'] = data['Close'].ewm(span=window, adjust=False).mean()
+            data[f'Price_to_SMA_{window}'] = data['Close'] / data[f'SMA_{window}']
+            data[f'SMA_Slope_{window}'] = data[f'SMA_{window}'].diff()
+        
+        # Volatility
+        for window in [5, 10, 20, 30]:
+            data[f'Volatility_{window}'] = data['Returns'].rolling(window=window).std()
+            data[f'Volatility_High_Low_{window}'] = (data['High'] - data['Low']).rolling(window=window).std() if 'High' in data.columns else 0
+        
+        # RSI - manual calculation for reliability
+        delta = data['Close'].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        data['RSI'] = 100 - (100 / (1 + rs))
+        data['RSI_Oversold'] = (data['RSI'] < 30).astype(int)
+        data['RSI_Overbought'] = (data['RSI'] > 70).astype(int)
+        
+        # MACD - manual calculation
+        exp1 = data['Close'].ewm(span=12, adjust=False).mean()
+        exp2 = data['Close'].ewm(span=26, adjust=False).mean()
+        data['MACD'] = exp1 - exp2
+        data['MACD_Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
+        data['MACD_Diff'] = data['MACD'] - data['MACD_Signal']
+        data['MACD_Cross'] = ((data['MACD'] > data['MACD_Signal']).astype(int).diff()).fillna(0)
+        
+        # Bollinger Bands - manual calculation
+        for window in [20]:
+            sma = data['Close'].rolling(window=window).mean()
+            std = data['Close'].rolling(window=window).std()
+            data[f'BB_High_{window}'] = sma + (2 * std)
+            data[f'BB_Low_{window}'] = sma - (2 * std)
+            data[f'BB_Mid_{window}'] = sma
+            data[f'BB_Width_{window}'] = (data[f'BB_High_{window}'] - data[f'BB_Low_{window}']) / data[f'BB_Mid_{window}']
+            data[f'BB_Position_{window}'] = (data['Close'] - data[f'BB_Low_{window}']) / (data[f'BB_High_{window}'] - data[f'BB_Low_{window}'])
+        
+        # Price momentum and rate of change
+        for lag in [1, 3, 5, 7, 14, 21, 30]:
+            data[f'Price_Lag_{lag}'] = data['Close'].shift(lag)
+            data[f'Returns_Lag_{lag}'] = data['Returns'].shift(lag)
+            data[f'ROC_{lag}'] = ((data['Close'] - data['Close'].shift(lag)) / data['Close'].shift(lag)) * 100
+        
+        # Momentum oscillator
+        data['Momentum_10'] = data['Close'] - data['Close'].shift(10)
+        data['Momentum_20'] = data['Close'] - data['Close'].shift(20)
+        
+        # Price acceleration
+        data['Price_Acceleration'] = data['Returns'].diff()
+        
+        # Volume features (if available)
+        if 'Volume' in data.columns:
+            data['Volume_Change'] = data['Volume'].pct_change()
+            data['Volume_MA_5'] = data['Volume'].rolling(window=5).mean()
+            data['Volume_MA_20'] = data['Volume'].rolling(window=20).mean()
+        
+        # Time-based features
+        data['DayOfWeek'] = data.index.dayofweek
+        data['Month'] = data.index.month
+        data['Quarter'] = data.index.quarter
+        data['DayOfMonth'] = data.index.day
+        
+        # Target variable - next day's closing price
+        data['Target'] = data['Close'].shift(-1)
+        
+        # Drop rows with NaN values
+        data = data.dropna()
+        
+        # Replace inf values with NaN and drop them
+        data = data.replace([np.inf, -np.inf], np.nan)
+        data = data.dropna()
+        
+        return data
+    
+    def prepare_data(self, data, test_size=0.2):
+        """
+        Prepare data for training
+        
+        Parameters:
+        -----------
+        data : pd.DataFrame
+            DataFrame with features
+        test_size : float
+            Proportion of data to use for testing
+        
+        Returns:
+        --------
+        tuple
+            (X_train, X_test, y_train, y_test)
+        """
+        # Remove target and non-feature columns
+        exclude_cols = ['Target', 'Close', 'Open', 'High', 'Low', 'Volume', 'Adj Close', 'Commodity']
+        feature_cols = [col for col in data.columns if col not in exclude_cols]
+        
+        X = data[feature_cols]
+        y = data['Target']
+        
+        # Store feature columns
+        self.feature_columns = feature_cols
+        
+        # Time series split - respect temporal order
+        split_idx = int(len(X) * (1 - test_size))
+        
+        X_train = X.iloc[:split_idx]
+        X_test = X.iloc[split_idx:]
+        y_train = y.iloc[:split_idx]
+        y_test = y.iloc[split_idx:]
+        
+        # Scale features
+        X_train_scaled = self.scaler.fit_transform(X_train)
+        X_test_scaled = self.scaler.transform(X_test)
+        
+        return X_train_scaled, X_test_scaled, y_train, y_test, X_train.index, X_test.index
+    
+    def train(self, X_train, y_train, X_val=None, y_val=None):
+        """
+        Train XGBoost model
+        
+        Parameters:
+        -----------
+        X_train : array-like
+            Training features
+        y_train : array-like
+            Training target
+        X_val : array-like, optional
+            Validation features
+        y_val : array-like, optional
+            Validation target
+        """
+        print(f"\nTraining XGBoost model for {self.commodity_name}...")
+        
+        # Optimized XGBoost parameters for better accuracy
+        params = {
+            'objective': 'reg:squarederror',
+            'max_depth': 8,  # Deeper trees for complex patterns
+            'learning_rate': 0.05,  # Lower learning rate for better generalization
+            'n_estimators': 500,  # More trees
+            'min_child_weight': 3,  # More conservative splits
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'colsample_bylevel': 0.8,
+            'gamma': 0.1,  # Regularization
+            'reg_alpha': 0.5,  # L1 regularization
+            'reg_lambda': 2,  # L2 regularization
+            'random_state': 42,
+            'n_jobs': -1,
+            'tree_method': 'hist'  # Faster training
+        }
+        
+        # Create and train model
+        self.model = xgb.XGBRegressor(**params)
+        
+        # Prepare evaluation set if validation data provided
+        eval_set = [(X_train, y_train)]
+        if X_val is not None and y_val is not None:
+            eval_set.append((X_val, y_val))
+        
+        # Train with early stopping if validation set provided
+        if X_val is not None and y_val is not None:
+            self.model.fit(
+                X_train, y_train,
+                eval_set=eval_set,
+                verbose=False
+            )
+        else:
+            self.model.fit(
+                X_train, y_train,
+                verbose=False
+            )
+        
+        print(f"✓ Model training completed")
+    
+    def predict(self, X):
+        """Make predictions"""
+        if self.model is None:
+            raise ValueError("Model not trained yet")
+        
+        return self.model.predict(X)
+    
+    def evaluate(self, X_test, y_test):
+        """
+        Evaluate model performance
+        
+        Parameters:
+        -----------
+        X_test : array-like
+            Test features
+        y_test : array-like
+            Test target
+        
+        Returns:
+        --------
+        dict
+            Dictionary with evaluation metrics
+        """
+        predictions = self.predict(X_test)
+        
+        mae = mean_absolute_error(y_test, predictions)
+        mse = mean_squared_error(y_test, predictions)
+        rmse = np.sqrt(mse)
+        r2 = r2_score(y_test, predictions)
+        mape = np.mean(np.abs((y_test - predictions) / y_test)) * 100
+        
+        metrics = {
+            'MAE': mae,
+            'MSE': mse,
+            'RMSE': rmse,
+            'R2': r2,
+            'MAPE': mape
+        }
+        
+        return metrics, predictions
+    
+    def save_model(self):
+        """Save model and scaler"""
+        model_path = os.path.join(self.model_dir, f"{self.commodity_name}_model.pkl")
+        scaler_path = os.path.join(self.model_dir, f"{self.commodity_name}_scaler.pkl")
+        
+        joblib.dump(self.model, model_path)
+        joblib.dump(self.scaler, scaler_path)
+        joblib.dump(self.feature_columns, os.path.join(self.model_dir, f"{self.commodity_name}_features.pkl"))
+        
+        print(f"✓ Model saved to {model_path}")
+    
+    def load_model(self):
+        """Load model and scaler"""
+        model_path = os.path.join(self.model_dir, f"{self.commodity_name}_model.pkl")
+        scaler_path = os.path.join(self.model_dir, f"{self.commodity_name}_scaler.pkl")
+        features_path = os.path.join(self.model_dir, f"{self.commodity_name}_features.pkl")
+        
+        if os.path.exists(model_path):
+            self.model = joblib.load(model_path)
+            self.scaler = joblib.load(scaler_path)
+            self.feature_columns = joblib.load(features_path)
+            print(f"✓ Model loaded from {model_path}")
+        else:
+            print(f"Model file not found at {model_path}")
+    
+    def get_feature_importance(self):
+        """Get feature importance from the model"""
+        if self.model is None:
+            raise ValueError("Model not trained yet")
+        
+        importance = pd.DataFrame({
+            'Feature': self.feature_columns,
+            'Importance': self.model.feature_importances_
+        }).sort_values('Importance', ascending=False)
+        
+        return importance

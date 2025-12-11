@@ -1,0 +1,51 @@
+# .gitignore for Commodity Price Prediction Project
+
+# Data files
+data/
+*.csv
+
+# Model files
+models/
+*.pkl
+*.joblib
+
+# Results and outputs
+results/
+*.png
+*.jpg
+*.jpeg
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+venv/
+env/
+ENV/
+.venv
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
