@@ -41,8 +41,15 @@ class ImprovedCommodityPredictor:
             data['Upper_Shadow'] = data['High'] - data[['Open', 'Close']].max(axis=1)
             data['Lower_Shadow'] = data[['Open', 'Close']].min(axis=1) - data['Low']
         
-        # Multiple timeframe moving averages
-        for window in [3, 5, 7, 10, 15, 20, 30, 50, 100, 200]:
+        # Determine max window size based on data length
+        max_window = max(3, len(data) // 3)
+        
+        # Multiple timeframe moving averages - adjusted for limited data
+        windows = [w for w in [3, 5, 7, 10, 15] if w < max_window]
+        if not windows:
+            windows = [2, 3]
+        
+        for window in windows:
             data[f'SMA_{window}'] = data['Close'].rolling(window=window).mean()
             data[f'EMA_{window}'] = data['Close'].ewm(span=window, adjust=False).mean()
             
@@ -54,36 +61,46 @@ class ImprovedCommodityPredictor:
             data[f'SMA_Slope_{window}'] = data[f'SMA_{window}'].diff() / data[f'SMA_{window}']
             data[f'EMA_Slope_{window}'] = data[f'EMA_{window}'].diff() / data[f'EMA_{window}']
         
-        # MA crossovers
-        data['SMA_5_20_Cross'] = (data['SMA_5'] > data['SMA_20']).astype(int)
-        data['SMA_10_50_Cross'] = (data['SMA_10'] > data['SMA_50']).astype(int)
-        data['EMA_5_20_Cross'] = (data['EMA_5'] > data['EMA_20']).astype(int)
+        # MA crossovers - adjusted for available windows
+        if 'SMA_5' in data.columns and 'SMA_10' in data.columns and len(windows) >= 2:
+            data[f'SMA_{windows[0]}_{windows[1]}_Cross'] = (data[f'SMA_{windows[0]}'] > data[f'SMA_{windows[1]}']).astype(int)
+            data[f'EMA_{windows[0]}_{windows[1]}_Cross'] = (data[f'EMA_{windows[0]}'] > data[f'EMA_{windows[1]}']).astype(int)
         
-        # Volatility measures
-        for window in [5, 10, 20, 30]:
+        # Volatility measures - adjusted for limited data
+        vol_windows = [w for w in [3, 5, 7] if w < max_window]
+        if not vol_windows:
+            vol_windows = [2, 3]
+        
+        for window in vol_windows:
             data[f'Volatility_{window}'] = data['Returns'].rolling(window=window).std()
             data[f'Volatility_Ratio_{window}'] = data[f'Volatility_{window}'] / data[f'Volatility_{window}'].rolling(window=window).mean()
             
-        # RSI
+        # RSI - adjusted window
+        rsi_window = min(14, max_window - 1)
         delta = data['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        gain = (delta.where(delta > 0, 0)).rolling(window=rsi_window).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_window).mean()
         rs = gain / (loss + 1e-10)
         data['RSI'] = 100 - (100 / (1 + rs))
         data['RSI_Oversold'] = (data['RSI'] < 30).astype(int)
         data['RSI_Overbought'] = (data['RSI'] > 70).astype(int)
         data['RSI_Momentum'] = data['RSI'].diff()
         
-        # MACD
-        exp1 = data['Close'].ewm(span=12, adjust=False).mean()
-        exp2 = data['Close'].ewm(span=26, adjust=False).mean()
+        # MACD - adjusted windows
+        macd_fast = min(12, max(5, max_window // 2))
+        macd_slow = min(26, max(10, max_window - 3))
+        macd_signal = min(9, max(3, max_window // 3))
+        
+        exp1 = data['Close'].ewm(span=macd_fast, adjust=False).mean()
+        exp2 = data['Close'].ewm(span=macd_slow, adjust=False).mean()
         data['MACD'] = exp1 - exp2
-        data['MACD_Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
+        data['MACD_Signal'] = data['MACD'].ewm(span=macd_signal, adjust=False).mean()
         data['MACD_Diff'] = data['MACD'] - data['MACD_Signal']
         data['MACD_Cross'] = (data['MACD'] > data['MACD_Signal']).astype(int)
         
-        # Bollinger Bands
-        for window in [20]:
+        # Bollinger Bands - adjusted window
+        bb_window = min(10, max(5, max_window - 2))
+        for window in [bb_window]:
             sma = data['Close'].rolling(window=window).mean()
             std = data['Close'].rolling(window=window).std()
             data[f'BB_High_{window}'] = sma + (2 * std)

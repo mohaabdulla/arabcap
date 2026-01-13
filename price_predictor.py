@@ -57,63 +57,91 @@ class CommodityPricePredictor:
             data['Price_Range'] = data['High'] - data['Low']
             data['Price_Range_Pct'] = (data['High'] - data['Low']) / data['Close']
         
-        # Moving averages - using pandas for reliability
-        for window in [5, 10, 20, 50, 100, 200]:
+        # Determine max window size based on data length
+        # Use 1/3 of available data as max window to preserve enough samples
+        max_window = max(3, len(data) // 3)
+        
+        # Moving averages - adjusted for limited data
+        windows = [w for w in [3, 5, 7, 10, 15] if w < max_window]
+        if not windows:
+            windows = [2, 3]  # Minimum windows
+            
+        for window in windows:
             data[f'SMA_{window}'] = data['Close'].rolling(window=window).mean()
             data[f'EMA_{window}'] = data['Close'].ewm(span=window, adjust=False).mean()
             data[f'Price_to_SMA_{window}'] = data['Close'] / data[f'SMA_{window}']
             data[f'SMA_Slope_{window}'] = data[f'SMA_{window}'].diff()
         
-        # Volatility
-        for window in [5, 10, 20, 30]:
+        # Volatility - shorter windows
+        vol_windows = [w for w in [3, 5, 7] if w < max_window]
+        if not vol_windows:
+            vol_windows = [2, 3]
+            
+        for window in vol_windows:
             data[f'Volatility_{window}'] = data['Returns'].rolling(window=window).std()
             data[f'Volatility_High_Low_{window}'] = (data['High'] - data['Low']).rolling(window=window).std() if 'High' in data.columns else 0
         
-        # RSI - manual calculation for reliability
+        # RSI - manual calculation with adjusted window
+        rsi_window = min(14, max_window - 1)
         delta = data['Close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        gain = (delta.where(delta > 0, 0)).rolling(window=rsi_window).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=rsi_window).mean()
         rs = gain / loss
         data['RSI'] = 100 - (100 / (1 + rs))
         data['RSI_Oversold'] = (data['RSI'] < 30).astype(int)
         data['RSI_Overbought'] = (data['RSI'] > 70).astype(int)
         
-        # MACD - manual calculation
-        exp1 = data['Close'].ewm(span=12, adjust=False).mean()
-        exp2 = data['Close'].ewm(span=26, adjust=False).mean()
+        # MACD - manual calculation with adjusted windows
+        macd_fast = min(12, max(5, max_window // 2))
+        macd_slow = min(26, max(10, max_window - 3))
+        macd_signal = min(9, max(3, max_window // 3))
+        
+        exp1 = data['Close'].ewm(span=macd_fast, adjust=False).mean()
+        exp2 = data['Close'].ewm(span=macd_slow, adjust=False).mean()
         data['MACD'] = exp1 - exp2
-        data['MACD_Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
+        data['MACD_Signal'] = data['MACD'].ewm(span=macd_signal, adjust=False).mean()
         data['MACD_Diff'] = data['MACD'] - data['MACD_Signal']
         data['MACD_Cross'] = ((data['MACD'] > data['MACD_Signal']).astype(int).diff()).fillna(0)
         
-        # Bollinger Bands - manual calculation
-        for window in [20]:
-            sma = data['Close'].rolling(window=window).mean()
-            std = data['Close'].rolling(window=window).std()
-            data[f'BB_High_{window}'] = sma + (2 * std)
-            data[f'BB_Low_{window}'] = sma - (2 * std)
-            data[f'BB_Mid_{window}'] = sma
-            data[f'BB_Width_{window}'] = (data[f'BB_High_{window}'] - data[f'BB_Low_{window}']) / data[f'BB_Mid_{window}']
-            data[f'BB_Position_{window}'] = (data['Close'] - data[f'BB_Low_{window}']) / (data[f'BB_High_{window}'] - data[f'BB_Low_{window}'])
+        # Bollinger Bands - manual calculation with adjusted window
+        bb_window = min(10, max(5, max_window - 2))
+        sma = data['Close'].rolling(window=bb_window).mean()
+        std = data['Close'].rolling(window=bb_window).std()
+        data[f'BB_High_{bb_window}'] = sma + (2 * std)
+        data[f'BB_Low_{bb_window}'] = sma - (2 * std)
+        data[f'BB_Mid_{bb_window}'] = sma
+        data[f'BB_Width_{bb_window}'] = (data[f'BB_High_{bb_window}'] - data[f'BB_Low_{bb_window}']) / data[f'BB_Mid_{bb_window}']
+        data[f'BB_Position_{bb_window}'] = (data['Close'] - data[f'BB_Low_{bb_window}']) / (data[f'BB_High_{bb_window}'] - data[f'BB_Low_{bb_window}'])
         
-        # Price momentum and rate of change
-        for lag in [1, 3, 5, 7, 14, 21, 30]:
+        # Price momentum and rate of change - shorter lags
+        lags = [lag for lag in [1, 2, 3, 5, 7] if lag < max_window]
+        if not lags:
+            lags = [1, 2]
+            
+        for lag in lags:
             data[f'Price_Lag_{lag}'] = data['Close'].shift(lag)
             data[f'Returns_Lag_{lag}'] = data['Returns'].shift(lag)
             data[f'ROC_{lag}'] = ((data['Close'] - data['Close'].shift(lag)) / data['Close'].shift(lag)) * 100
         
-        # Momentum oscillator
-        data['Momentum_10'] = data['Close'] - data['Close'].shift(10)
-        data['Momentum_20'] = data['Close'] - data['Close'].shift(20)
+        # Momentum oscillator - adjusted
+        mom_windows = [w for w in [5, 10] if w < max_window]
+        if not mom_windows:
+            mom_windows = [2, 3]
+            
+        for window in mom_windows[:2]:  # Use max 2 momentum windows
+            data[f'Momentum_{window}'] = data['Close'] - data['Close'].shift(window)
         
         # Price acceleration
         data['Price_Acceleration'] = data['Returns'].diff()
         
-        # Volume features (if available)
+        # Volume features (if available) - adjusted
         if 'Volume' in data.columns:
             data['Volume_Change'] = data['Volume'].pct_change()
-            data['Volume_MA_5'] = data['Volume'].rolling(window=5).mean()
-            data['Volume_MA_20'] = data['Volume'].rolling(window=20).mean()
+            vol_ma_windows = [w for w in [3, 5] if w < max_window]
+            if not vol_ma_windows:
+                vol_ma_windows = [2]
+            for window in vol_ma_windows:
+                data[f'Volume_MA_{window}'] = data['Volume'].rolling(window=window).mean()
         
         # Time-based features
         data['DayOfWeek'] = data.index.dayofweek
