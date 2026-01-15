@@ -1,6 +1,7 @@
 """
-Main Execution Script for Commodity Price Prediction
+Main Execution Script for Production Volume Forecasting
 Orchestrates data collection, model training, backtesting, and visualization
+Forecasts monthly aluminum production volumes based on historical data
 """
 
 import os
@@ -22,12 +23,16 @@ plt.rcParams['figure.figsize'] = (15, 10)
 
 def train_and_backtest_commodity(commodity_name, data, retrain_freq=30):
     """
-    Complete pipeline for training and backtesting a commodity
+    Complete pipeline for training and backtesting production forecasting
     
     Parameters:
     -----------
     commodity_name : str
-        Name of the commodity
+        Name of the commodity (aluminum)
+    data : pd.DataFrame
+        Historical production volume data
+    retrain_freq : int
+        How often to retrain during backtesting (in days)
     data : pd.DataFrame
         Historical price data
     retrain_freq : int
@@ -212,12 +217,12 @@ def compare_commodities(results_dict):
 def main():
     """Main execution function"""
     print("="*70)
-    print("COMMODITY PRICE PREDICTION WITH XGBOOST")
-    print("Copper and Aluminum Price Forecasting System")
+    print("ALUMINUM PRODUCTION VOLUME FORECASTING WITH XGBOOST")
+    print("Monthly Production Forecasting System")
     print("="*70)
     
     # Step 1: Data Collection
-    print("\n[STEP 1] DATA COLLECTION")
+    print("\n[STEP 1] DATA COLLECTION FROM EXCEL")
     print("-" * 70)
     
     collector = CommodityDataCollector()
@@ -227,7 +232,7 @@ def main():
     aluminum_data = collector.load_data('aluminum')
     
     if copper_data is None or aluminum_data is None:
-        print("Downloading fresh data from Yahoo Finance...")
+        print("Loading data from Excel file...")
         all_data = collector.collect_all_data()
         copper_data = all_data.get('copper')
         aluminum_data = all_data.get('aluminum')

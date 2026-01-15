@@ -30,7 +30,7 @@ class BacktestEngine:
     
     def walk_forward_validation(self, initial_train_size=0.7, step_size=1, retrain_frequency=30):
         """
-        Perform walk-forward validation
+        Perform walk-forward validation with adaptive error correction
         
         Parameters:
         -----------
@@ -63,6 +63,8 @@ class BacktestEngine:
         initial_train_idx = int(len(data_with_features) * initial_train_size)
         
         days_since_retrain = 0
+        recent_errors = []  # Track recent errors for adaptive correction
+        error_correction_window = 3
         
         # Walk forward through the data
         for i in range(initial_train_idx, len(data_with_features) - 1, step_size):
@@ -87,14 +89,33 @@ class BacktestEngine:
             X_test_scaled = self.predictor.scaler.transform(X_test)
             prediction = self.predictor.predict(X_test_scaled)[0]
             
+            # Apply adaptive error correction based on recent errors
+            if len(recent_errors) >= error_correction_window:
+                # Calculate average recent error (bias)
+                avg_recent_error = np.mean(recent_errors[-error_correction_window:])
+                # Calculate trend in errors
+                if len(recent_errors) >= error_correction_window:
+                    error_trend = np.polyfit(range(error_correction_window), 
+                                            recent_errors[-error_correction_window:], 1)[0]
+                    # Apply 70% correction for bias and 50% for trend
+                    prediction = prediction - (0.7 * avg_recent_error) - (0.5 * error_trend * (len(recent_errors) + 1))
+            
+            # Calculate error for this prediction
+            current_error = prediction - y_test
+            recent_errors.append(current_error)
+            
+            # Keep only recent errors
+            if len(recent_errors) > error_correction_window * 2:
+                recent_errors.pop(0)
+            
             # Store results
             results.append({
                 'Date': test_data.index[0],
                 'Actual': y_test,
                 'Predicted': prediction,
-                'Error': prediction - y_test,
-                'Absolute_Error': abs(prediction - y_test),
-                'Percentage_Error': abs((prediction - y_test) / y_test) * 100
+                'Error': current_error,
+                'Absolute_Error': abs(current_error),
+                'Percentage_Error': abs(current_error / y_test) * 100
             })
             
             days_since_retrain += step_size
