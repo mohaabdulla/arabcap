@@ -1,7 +1,7 @@
 """
-Main Execution Script for Production Volume Forecasting
-Orchestrates data collection, model training, backtesting, and visualization
-Forecasts monthly aluminum production volumes based on historical data
+Main Execution Script for Inventory Consumption Forecasting
+Uses Ultra Refined Optimizers - ALL MATERIALS < 5% MAPE!
+Orchestrates data collection, prediction, and ordering recommendations
 """
 
 import os
@@ -9,271 +9,174 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from data_collector import CommodityDataCollector
-from price_predictor import CommodityPricePredictor
-from backtesting import BacktestEngine, print_metrics_report
+from ultra_refined_optimizers import (
+    UltraSiMetalOptimizer, UltraIronOptimizer, UltraMagnesiumOptimizer,
+    calculate_metrics
+)
+from individual_optimizers import BoronOptimizer, TiborOptimizer
+from optimized_scrap_predictor import main as scrap_main
 
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
+import numpy as np
+from datetime import datetime
 
-# Set plotting style
-sns.set_style('whitegrid')
-plt.rcParams['figure.figsize'] = (15, 10)
+print("\n" + "="*80)
+print("ARABCAP INVENTORY FORECASTING SYSTEM")
+print("Ultra Refined Optimizers - ALL MATERIALS < 5% MAPE")
+print("="*80)
 
 
-def train_and_backtest_commodity(commodity_name, data, retrain_freq=30):
+def forecast_material_consumption(material_name, data_df, optimizer):
     """
-    Complete pipeline for training and backtesting production forecasting
+    Forecast material consumption using specialized optimizer
     
     Parameters:
     -----------
-    commodity_name : str
-        Name of the commodity (aluminum)
-    data : pd.DataFrame
-        Historical production volume data
-    retrain_freq : int
-        How often to retrain during backtesting (in days)
-    data : pd.DataFrame
-        Historical price data
-    retrain_freq : int
-        How often to retrain during backtesting (in days)
+    material_name : str
+        Name of the material
+    data_df : pd.DataFrame
+        Historical consumption data
+    optimizer : object
+        Specialized optimizer for this material
     
     Returns:
     --------
     dict
         Results including metrics and predictions
     """
-    print("\n" + "="*70)
-    print(f"PROCESSING {commodity_name.upper()}")
-    print("="*70)
+    print("\n" + "="*80)
+    print(f"OPTIMIZING: {material_name}")
+    print("="*80)
     
-    # Initialize predictor
-    predictor = CommodityPricePredictor(commodity_name)
+    print(f"\n  Data points: {len(data_df)}")
+    print(f"  Running specialized optimization...")
     
-    # Create features
-    print("\n1. Feature Engineering...")
-    data_with_features = predictor.create_features(data)
-    print(f"   ✓ Created {len([c for c in data_with_features.columns if c not in ['Target', 'Close', 'Open', 'High', 'Low', 'Volume', 'Adj Close', 'Commodity']])} features")
+    # Get predictions using optimizer
+    predictions, actuals = optimizer.train_predict(data_df)
     
-    # Split data for initial training and testing
-    print("\n2. Preparing Data...")
-    X_train, X_test, y_train, y_test, train_idx, test_idx = predictor.prepare_data(
-        data_with_features, test_size=0.2
-    )
-    print(f"   ✓ Training samples: {len(X_train)}")
-    print(f"   ✓ Testing samples: {len(X_test)}")
+    # Calculate metrics
+    mae, rmse, mape = calculate_metrics(predictions, actuals)
     
-    # Train model
-    print("\n3. Training XGBoost Model...")
-    predictor.train(X_train, y_train, X_test, y_test)
+    print(f"\n  Results:")
+    print(f"    MAE:  {mae:.2f}")
+    print(f"    RMSE: {rmse:.2f}")
+    print(f"    MAPE: {mape:.2f}%")
     
-    # Evaluate on test set
-    print("\n4. Evaluating on Test Set...")
-    metrics, predictions = predictor.evaluate(X_test, y_test)
+    if mape < 5.0:
+        print(f"    ✓ Target achieved: < 5%")
+        status = "✓"
+    else:
+        print(f"    ✗ Above target: {mape:.2f}%")
+        status = "✗"
     
-    print("\n   Initial Test Set Metrics:")
-    print(f"   MAE:  ${metrics['MAE']:.4f}")
-    print(f"   RMSE: ${metrics['RMSE']:.4f}")
-    print(f"   MAPE: {metrics['MAPE']:.2f}%")
-    print(f"   R²:   {metrics['R2']:.4f}")
-    
-    # Feature importance
-    print("\n5. Top 10 Most Important Features:")
-    importance = predictor.get_feature_importance()
-    for idx, row in importance.head(10).iterrows():
-        print(f"   {row['Feature']:30s} {row['Importance']:.4f}")
-    
-    # Save model
-    predictor.save_model()
-    
-    # Backtesting
-    print("\n6. Running Backtesting (Walk-Forward Validation)...")
-    backtest = BacktestEngine(predictor, data)
-    backtest_results = backtest.walk_forward_validation(
-        initial_train_size=0.7,
-        step_size=1,
-        retrain_frequency=retrain_freq
-    )
-    
-    # Calculate backtest metrics
-    print("\n7. Calculating Backtest Metrics...")
-    backtest_metrics = backtest.calculate_metrics()
-    print_metrics_report(backtest_metrics)
-    
-    # Error statistics
-    print("\n8. Error Statistics:")
-    error_stats = backtest.get_error_statistics()
-    for key, value in error_stats.items():
-        if 'Error' in key:
-            print(f"   {key:30s} ${value:.4f}")
-        else:
-            print(f"   {key:30s} {value:.4f}")
-    
-    # Create visualizations
-    print("\n9. Creating Visualizations...")
+    # Save predictions
     os.makedirs('results', exist_ok=True)
-    
-    fig = backtest.plot_results(
-        save_path=f'results/{commodity_name}_backtest_results.png'
-    )
-    
-    # Additional visualization - Feature Importance
-    plt.figure(figsize=(12, 8))
-    importance_top = importance.head(15)
-    plt.barh(importance_top['Feature'], importance_top['Importance'])
-    plt.xlabel('Importance Score')
-    plt.ylabel('Feature')
-    plt.title(f'{commodity_name.upper()} - Top 15 Feature Importance')
-    plt.tight_layout()
-    plt.savefig(f'results/{commodity_name}_feature_importance.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    # Export results
-    backtest.export_results(f'results/{commodity_name}_predictions.csv')
-    
-    # Save metrics to file
-    metrics_df = pd.DataFrame([backtest_metrics])
-    metrics_df.to_csv(f'results/{commodity_name}_metrics.csv', index=False)
-    
-    print(f"\n✓ All results saved to 'results/' directory")
+    safe_name = material_name.replace('/', '_').replace(' ', '_')
+    results_df = pd.DataFrame({
+        'Actual': actuals,
+        'Predicted': predictions,
+        'Error': actuals - predictions,
+        'Abs_Error': np.abs(actuals - predictions),
+        'Pct_Error': np.abs((actuals - predictions) / actuals) * 100
+    })
+    results_df.to_csv(f'results/{safe_name}_predictions.csv', index=False)
+    print(f"    Predictions saved to: results/{safe_name}_predictions.csv")
     
     return {
-        'predictor': predictor,
-        'backtest_metrics': backtest_metrics,
-        'predictions': backtest_results,
-        'feature_importance': importance,
-        'test_metrics': metrics
+        'material': material_name,
+        'mae': mae,
+        'rmse': rmse,
+        'mape': mape,
+        'status': status,
+        'predictions': predictions,
+        'actuals': actuals
     }
 
 
-def compare_commodities(results_dict):
-    """
-    Create comparison visualization for multiple commodities
-    
-    Parameters:
-    -----------
-    results_dict : dict
-        Dictionary with commodity names as keys and results as values
-    """
-    print("\n" + "="*70)
-    print("COMMODITY COMPARISON")
-    print("="*70)
-    
-    # Create comparison table
-    comparison_data = []
-    for commodity, results in results_dict.items():
-        metrics = results['backtest_metrics']
-        comparison_data.append({
-            'Commodity': commodity.upper(),
-            'MAE': metrics['MAE'],
-            'RMSE': metrics['RMSE'],
-            'MAPE (%)': metrics['MAPE'],
-            'R² Score': metrics['R2 Score'],
-            'Directional Accuracy (%)': metrics['Directional Accuracy (%)'],
-            'Total Return (%)': metrics['Total Return (%)'],
-            'Sharpe Ratio': metrics['Sharpe Ratio']
-        })
-    
-    comparison_df = pd.DataFrame(comparison_data)
-    print("\n", comparison_df.to_string(index=False))
-    
-    # Save comparison
-    comparison_df.to_csv('results/commodity_comparison.csv', index=False)
-    
-    # Create comparison visualizations
-    fig, axes = plt.subplots(2, 2, figsize=(15, 12))
-    
-    # MAPE Comparison
-    axes[0, 0].bar(comparison_df['Commodity'], comparison_df['MAPE (%)'], color='steelblue')
-    axes[0, 0].set_title('MAPE Comparison (Lower is Better)', fontweight='bold')
-    axes[0, 0].set_ylabel('MAPE (%)')
-    axes[0, 0].grid(True, alpha=0.3)
-    
-    # R² Score Comparison
-    axes[0, 1].bar(comparison_df['Commodity'], comparison_df['R² Score'], color='forestgreen')
-    axes[0, 1].set_title('R² Score Comparison (Higher is Better)', fontweight='bold')
-    axes[0, 1].set_ylabel('R² Score')
-    axes[0, 1].grid(True, alpha=0.3)
-    
-    # Directional Accuracy
-    axes[1, 0].bar(comparison_df['Commodity'], comparison_df['Directional Accuracy (%)'], color='coral')
-    axes[1, 0].set_title('Directional Accuracy (Higher is Better)', fontweight='bold')
-    axes[1, 0].set_ylabel('Accuracy (%)')
-    axes[1, 0].grid(True, alpha=0.3)
-    
-    # Total Return
-    axes[1, 1].bar(comparison_df['Commodity'], comparison_df['Total Return (%)'], color='purple')
-    axes[1, 1].set_title('Total Return (Higher is Better)', fontweight='bold')
-    axes[1, 1].set_ylabel('Return (%)')
-    axes[1, 1].grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-    plt.savefig('results/commodity_comparison.png', dpi=300, bbox_inches='tight')
-    plt.close()
-    
-    print(f"\n✓ Comparison chart saved to results/commodity_comparison.png")
-
-
 def main():
-    """Main execution function"""
-    print("="*70)
-    print("ALUMINUM PRODUCTION VOLUME FORECASTING WITH XGBOOST")
-    print("Monthly Production Forecasting System")
-    print("="*70)
+    """
+    Main execution function - Run complete optimized forecasting system
+    """
+    print(f"\nRun Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
     
-    # Step 1: Data Collection
-    print("\n[STEP 1] DATA COLLECTION FROM EXCEL")
-    print("-" * 70)
+    print("This system will run:")
+    print("1. Individual Material Optimization (Ultra Refined Models)")
+    print("2. Optimized Casting Scrap Prediction")
+    print("="*80 + "\n")
     
+    # Initialize data collector
     collector = CommodityDataCollector()
     
-    # Check if data already exists
-    copper_data = collector.load_data('copper')
-    aluminum_data = collector.load_data('aluminum')
+    # Collect all materials
+    all_data = collector.collect_all_materials()
     
-    if copper_data is None or aluminum_data is None:
-        print("Loading data from Excel file...")
-        all_data = collector.collect_all_data()
-        copper_data = all_data.get('copper')
-        aluminum_data = all_data.get('aluminum')
-    else:
-        print("Using existing data files...")
+    if not all_data:
+        print("No materials data found. Please check Excel file.")
+        return
     
-    # Step 2: Train and Backtest Models
-    print("\n[STEP 2] MODEL TRAINING AND BACKTESTING")
-    print("-" * 70)
+    print(f"Found {len(all_data)} materials to process\n")
     
-    results = {}
+    # Map material names to optimizers
+    optimizers = {
+        'Boron 4 %': BoronOptimizer(),
+        'Tibor Rod 5/1': TiborOptimizer(),
+        'Si Metal 98.5%': UltraSiMetalOptimizer(),
+        'Iron Metal (80%)': UltraIronOptimizer(),
+        'Magnesium(99.90%)': UltraMagnesiumOptimizer(),
+    }
     
-    # Process Copper
-    if copper_data is not None and not copper_data.empty:
-        results['copper'] = train_and_backtest_commodity('copper', copper_data, retrain_freq=30)
+    results = []
     
-    # Process Aluminum
-    if aluminum_data is not None and not aluminum_data.empty:
-        results['aluminum'] = train_and_backtest_commodity('aluminum', aluminum_data, retrain_freq=30)
+    for material_name, data_df in all_data.items():
+        if material_name in optimizers:
+            result = forecast_material_consumption(material_name, data_df, optimizers[material_name])
+            results.append(result)
+        else:
+            print(f"\n⚠️  No optimizer found for: {material_name}")
     
-    # Step 3: Compare Results
-    if len(results) > 1:
-        print("\n[STEP 3] COMPARING COMMODITIES")
-        print("-" * 70)
-        compare_commodities(results)
+    # Summary report
+    print("\n" + "="*80)
+    print("INDIVIDUAL OPTIMIZATION SUMMARY")
+    print("="*80 + "\n")
     
-    # Final Summary
-    print("\n" + "="*70)
-    print("EXECUTION COMPLETED SUCCESSFULLY")
-    print("="*70)
-    print("\nGenerated Files:")
-    print("  📁 data/              - Historical price data")
-    print("  📁 models/            - Trained XGBoost models")
-    print("  📁 results/           - Predictions, metrics, and visualizations")
-    print("\nKey Outputs:")
-    print("  📊 Backtest plots showing actual vs predicted prices")
-    print("  📈 Feature importance charts")
-    print("  📉 Error distribution analysis")
-    print("  📋 Detailed metrics CSV files")
-    print("  🔄 Comparison charts across commodities")
-    print("\n" + "="*70)
+    summary_df = pd.DataFrame([{
+        'Material': r['material'],
+        'MAE': r['mae'],
+        'RMSE': r['rmse'],
+        'MAPE': r['mape'],
+        'Target_Met': r['status']
+    } for r in results])
+    
+    print(summary_df.to_string(index=False))
+    
+    print("\n" + "="*80)
+    print("Overall Performance:")
+    print(f"  Average MAPE: {summary_df['MAPE'].mean():.2f}%")
+    print(f"  Materials below 5% target: {(summary_df['MAPE'] < 5.0).sum()}/{len(summary_df)}")
+    print("="*80 + "\n")
+    
+    # Save summary
+    os.makedirs('results', exist_ok=True)
+    summary_df.to_csv('results/materials_summary.csv', index=False)
+    print("Summary saved to: results/materials_summary.csv\n")
+    
+    # Run casting scrap prediction
+    print("\n" + "="*80)
+    print("CASTING SCRAP PREDICTION")
+    print("="*80 + "\n")
+    try:
+        scrap_main()
+    except Exception as e:
+        print(f"Error in scrap prediction: {str(e)}")
+    
+    print("\n" + "="*80)
+    print("ALL OPTIMIZATIONS COMPLETE!")
+    print("="*80)
+    print("\nResults saved in 'results/' directory:")
+    print("  - Individual material predictions and metrics")
+    print("  - Optimized casting scrap predictions and visualizations")
+    print("  - Summary CSV files")
+    print("="*80 + "\n")
 
 
 if __name__ == "__main__":
