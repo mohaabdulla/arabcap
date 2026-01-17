@@ -432,6 +432,12 @@ body {
     padding: 25px;
     border-radius: 15px;
     box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+    position: relative;
+}
+
+.chart-container canvas {
+    width: 100% !important;
+    height: 260px !important;
 }
 
 .chart-container h3 {

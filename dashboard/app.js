@@ -83,6 +83,70 @@ let scrapData = {
 
 let historicalData = null;
 let predictionData = null;
+let consumptionPredictions = null;
+
+// Chart.js global styling for clearer visuals
+if (typeof Chart !== 'undefined') {
+    Chart.defaults.font.family = "'Segoe UI', 'Inter', 'system-ui', sans-serif";
+    Chart.defaults.font.size = 12;
+    Chart.defaults.color = '#0f172a';
+    Chart.defaults.elements.line.borderWidth = 2.5;
+    Chart.defaults.elements.point.radius = 4;
+    Chart.defaults.elements.point.borderWidth = 2;
+}
+
+// Shared line chart options to keep visuals consistent
+function getLineChartOptions({ yTickFormatter, yTitle, xTitle } = {}) {
+    return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        layout: { padding: { top: 10, right: 12, bottom: 8, left: 8 } },
+        plugins: {
+            legend: {
+                position: 'top',
+                labels: {
+                    usePointStyle: true,
+                    padding: 16,
+                    color: '#0f172a',
+                    font: { size: 12, weight: '600' }
+                }
+            },
+            tooltip: {
+                backgroundColor: 'rgba(15, 23, 42, 0.92)',
+                padding: 12,
+                displayColors: true
+            }
+        },
+        scales: {
+            x: {
+                grid: { color: 'rgba(148, 163, 184, 0.18)' },
+                ticks: { color: '#475569', font: { size: 10 }, maxRotation: 35, minRotation: 0 },
+                title: {
+                    display: Boolean(xTitle),
+                    text: xTitle || '',
+                    color: '#0f172a',
+                    font: { size: 12, weight: '600' }
+                }
+            },
+            y: {
+                beginAtZero: false,
+                grid: { color: 'rgba(148, 163, 184, 0.18)' },
+                ticks: {
+                    color: '#475569',
+                    font: { size: 10 },
+                    callback: yTickFormatter || (value => value)
+                },
+                title: {
+                    display: Boolean(yTitle),
+                    text: yTitle || '',
+                    color: '#0f172a',
+                    font: { size: 12, weight: '600' }
+                }
+            }
+        }
+    };
+}
 
 // Initialize dashboard
 document.addEventListener('DOMContentLoaded', function() {
@@ -96,6 +160,7 @@ document.addEventListener('DOMContentLoaded', function() {
         renderPredictionsTable();
         checkAlerts();
         initializeCharts();
+        loadConsumptionPredictions();
     });
     
     // Simulate real-time updates every 5 seconds
@@ -479,6 +544,25 @@ function initializeCharts() {
         }
     }
     
+    const scrapChartOptions = getLineChartOptions({
+        yTickFormatter: (value) => `${value?.toFixed ? value.toFixed(1) : value} kg`,
+        yTitle: 'Scrap (kg)',
+        xTitle: 'Time Period'
+    });
+    
+    scrapChartOptions.plugins.tooltip.callbacks = {
+        label: function(context) {
+            let label = context.dataset.label || '';
+            if (label) {
+                label += ': ';
+            }
+            if (context.parsed.y !== null) {
+                label += context.parsed.y.toFixed(1) + ' kg';
+            }
+            return label;
+        }
+    };
+    
     new Chart(scrapCtx, {
         type: 'line',
         data: {
@@ -487,102 +571,24 @@ function initializeCharts() {
                 label: 'Total Scrap (Actual)',
                 data: actualData,
                 borderColor: '#2563eb',
-                backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                tension: 0.4,
+                backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                tension: 0.35,
                 fill: true,
-                pointRadius: 2,
-                pointHoverRadius: 5
+                pointRadius: 3,
+                pointHoverRadius: 6
             }, {
                 label: 'Total Scrap (Predicted)',
                 data: predictedData,
                 borderColor: '#f59e0b',
-                backgroundColor: 'rgba(245, 158, 11, 0.1)',
-                borderDash: [5, 5],
-                tension: 0.4,
+                backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                borderDash: [6, 4],
+                tension: 0.35,
                 fill: true,
-                pointRadius: 2,
-                pointHoverRadius: 5
+                pointRadius: 3,
+                pointHoverRadius: 6
             }]
         },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-                legend: {
-                    position: 'top',
-                },
-                title: {
-                    display: false
-                },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false,
-                    callbacks: {
-                        label: function(context) {
-                            let label = context.dataset.label || '';
-                            if (label) {
-                                label += ': ';
-                            }
-                            if (context.parsed.y !== null) {
-                                label += context.parsed.y.toFixed(1) + ' kg';
-                            }
-                            return label;
-                        }
-                    }
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: false,
-                    title: {
-                        display: true,
-                        text: 'Scrap (kg)'
-                    }
-                },
-                x: {
-                    title: {
-                        display: true,
-                        text: 'Time Period'
-                    }
-                }
-            }
-        }
-    });
-    
-    // Consumption Forecast Chart
-    const consumptionCtx = document.getElementById('consumptionChart').getContext('2d');
-    new Chart(consumptionCtx, {
-        type: 'bar',
-        data: {
-            labels: materials.map(m => m.name),
-            datasets: [{
-                label: 'Current Stock',
-                data: materials.map(m => m.currentStock),
-                backgroundColor: 'rgba(37, 99, 235, 0.7)',
-            }, {
-                label: 'Min Stock',
-                data: materials.map(m => m.minStock),
-                backgroundColor: 'rgba(239, 68, 68, 0.7)',
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: true,
-            plugins: {
-                legend: {
-                    position: 'top',
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    title: {
-                        display: true,
-                        text: 'Stock (kg)'
-                    }
-                }
-            }
-        }
+        options: scrapChartOptions
     });
 }
 
@@ -651,4 +657,230 @@ function simulateUpdates() {
     // Update displays
     renderMaterialCards();
     checkAlerts();
+}
+
+// Load consumption predictions
+async function loadConsumptionPredictions() {
+    try {
+        // Try local path first
+        const response = await fetch('./consumption_predictions.json');
+        if (!response.ok) throw new Error('Failed to fetch');
+        
+        consumptionPredictions = await response.json();
+        
+        console.log('✅ Consumption predictions loaded', consumptionPredictions);
+        console.log('Materials found:', Object.keys(consumptionPredictions));
+        
+        // Render consumption charts
+        renderIndividualMaterialCharts();
+        renderConsumptionCharts();
+    } catch (error) {
+        console.error('❌ Error loading consumption predictions:', error);
+    }
+}
+
+// Render consumption prediction charts
+function renderConsumptionCharts() {
+    if (!consumptionPredictions) {
+        console.warn('No consumption predictions for main chart');
+        return;
+    }
+    
+    // Get first material for main chart
+    const firstMaterial = Object.keys(consumptionPredictions)[0];
+    if (!firstMaterial) {
+        console.warn('No materials found');
+        return;
+    }
+    
+    const data = consumptionPredictions[firstMaterial];
+    
+    console.log(`Creating main consumption chart for ${firstMaterial}`);
+    
+    const canvasEl = document.getElementById('consumptionPredChart');
+    if (!canvasEl) {
+        console.error('consumptionPredChart canvas not found');
+        return;
+    }
+    
+    const ctx = canvasEl.getContext('2d');
+    const mainConsumptionOptions = getLineChartOptions({
+        yTickFormatter: (value) => `${value?.toFixed ? value.toFixed(1) : value} kg`,
+        yTitle: 'Consumption (kg)',
+        xTitle: 'Time Period'
+    });
+    
+    mainConsumptionOptions.plugins.tooltip.callbacks = {
+        label: function(context) {
+            const label = context.dataset.label || '';
+            const value = context.parsed.y;
+            if (value === null || value === undefined) return label;
+            return `${label}: ${value.toFixed(2)} kg`;
+        }
+    };
+    
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.dates,
+            datasets: [{
+                label: 'Actual Consumption',
+                data: data.actuals,
+                borderColor: '#2563eb',
+                backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                borderWidth: 3,
+                tension: 0.35,
+                fill: true,
+                pointRadius: 4,
+                pointBackgroundColor: '#2563eb',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
+            }, {
+                label: 'Predicted Consumption',
+                data: data.predictions,
+                borderColor: '#f59e0b',
+                backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                borderDash: [8, 4],
+                borderWidth: 3,
+                tension: 0.35,
+                fill: true,
+                pointRadius: 4,
+                pointBackgroundColor: '#f59e0b',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2
+            }]
+        },
+        options: mainConsumptionOptions
+    });
+    
+    // Update accuracy display
+    const accuracyColor = data.mape < 5 ? '#10b981' : data.mape < 10 ? '#f59e0b' : '#ef4444';
+    document.getElementById('consumptionAccuracy').innerHTML = 
+        `<span style="color: ${accuracyColor};">✓</span> ${firstMaterial}: MAE = ${data.mae.toFixed(2)} kg | MAPE = ${data.mape.toFixed(2)}%`;
+}
+
+// Render individual material charts
+function renderIndividualMaterialCharts() {
+    if (!consumptionPredictions) {
+        console.warn('No consumption predictions loaded');
+        return;
+    }
+    
+    console.log('Rendering individual charts for materials:', Object.keys(consumptionPredictions));
+    
+    const materialMapping = {
+        'Boron 4%': { id: 'boron', accuracyId: 'boron_accuracy' },
+        'Iron Metal (80%)': { id: 'iron', accuracyId: 'iron_accuracy' },
+        'Magnesium (99.90%)': { id: 'magnesium', accuracyId: 'magnesium_accuracy' },
+        'Si Metal 98.5%': { id: 'si', accuracyId: 'si_accuracy' },
+        'Tibor Rod 5:1': { id: 'tibor', accuracyId: 'tibor_accuracy' }
+    };
+    
+    Object.keys(consumptionPredictions).forEach(materialName => {
+        const data = consumptionPredictions[materialName];
+        const mapping = materialMapping[materialName];
+        
+        if (!mapping) {
+            console.warn(`No mapping for material: ${materialName}`);
+            return;
+        }
+        
+        console.log(`Rendering chart for ${materialName}`);
+        
+        // Update accuracy display
+        const accuracyColor = data.mape < 5 ? '#10b981' : data.mape < 10 ? '#f59e0b' : '#ef4444';
+        const accuracyEl = document.getElementById(mapping.accuracyId);
+        if (accuracyEl) {
+            accuracyEl.innerHTML = `<span style="color: ${accuracyColor};">✓</span> MAE: ${data.mae.toFixed(2)} kg | MAPE: ${data.mape.toFixed(2)}%`;
+            accuracyEl.style.color = accuracyColor;
+        }
+        
+        // Get canvas element
+        const canvasId = `${mapping.id}_chart`;
+        const canvasEl = document.getElementById(canvasId);
+        
+        if (!canvasEl) {
+            console.error(`Canvas element not found: ${canvasId}`);
+            return;
+        }
+        
+        // Destroy existing chart if it exists (Chart.js v3+)
+        const existingChart = Chart.getChart(canvasEl);
+        if (existingChart) {
+            existingChart.destroy();
+        }
+        
+        console.log(`Creating chart for ${materialName} with ${data.dates.length} data points`);
+        
+        // Create chart
+        const ctx = canvasEl.getContext('2d');
+        const individualChartOptions = getLineChartOptions({
+            yTickFormatter: (value) => `${value?.toFixed ? value.toFixed(1) : value} kg`,
+            yTitle: 'Consumption (kg)'
+        });
+        
+        individualChartOptions.plugins.tooltip.callbacks = {
+            title: function(context) {
+                return 'Date: ' + context[0].label;
+            },
+            label: function(context) {
+                const value = context.parsed.y;
+                const label = context.dataset.label;
+                return `${label}: ${value.toFixed(2)} kg`;
+            },
+            afterLabel: function(context) {
+                if (context.datasetIndex === 1) {
+                    const actual = data.actuals[context.dataIndex];
+                    const predicted = data.predictions[context.dataIndex];
+                    const error = Math.abs(actual - predicted);
+                    const errorPct = ((error / actual) * 100).toFixed(2);
+                    return 'Error: ' + error.toFixed(2) + ' kg (' + errorPct + '%)';
+                }
+                return '';
+            }
+        };
+        
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.dates,
+                datasets: [{
+                    label: 'Actual Consumption',
+                    data: data.actuals,
+                    borderColor: '#2563eb',
+                    backgroundColor: 'rgba(37, 99, 235, 0.08)',
+                    borderWidth: 3,
+                    tension: 0.35,
+                    fill: true,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#2563eb',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointHoverRadius: 7
+                }, {
+                    label: 'Predicted Consumption',
+                    data: data.predictions,
+                    borderColor: '#f59e0b',
+                    backgroundColor: 'rgba(245, 158, 11, 0.08)',
+                    borderWidth: 3,
+                    borderDash: [8, 4],
+                    tension: 0.35,
+                    fill: true,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#f59e0b',
+                    pointBorderColor: '#fff',
+                    pointBorderWidth: 2,
+                    pointHoverRadius: 7
+                }]
+            },
+            options: individualChartOptions
+        });
+        
+        console.log(`✅ Chart created for ${materialName}`);
+    });
+}
+
+// Render consumption accuracy cards (removed - using individual charts instead)
+function renderConsumptionAccuracyCards() {
+    // This function is no longer needed as accuracy is shown in individual charts
 }

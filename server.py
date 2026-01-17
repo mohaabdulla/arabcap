@@ -15,10 +15,21 @@ PORT = 8000
 DASHBOARD_DIR = "dashboard"
 
 class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
-    """Custom handler to serve from dashboard directory"""
+    """Custom handler to serve from dashboard directory and parent for results"""
     
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, directory=DASHBOARD_DIR, **kwargs)
+    def translate_path(self, path):
+        """Translate URL path to filesystem path"""
+        # Get the original path translation from dashboard directory
+        path = super().translate_path(path)
+        
+        # If requesting /results/, serve from parent directory's results folder
+        if '/results/' in self.path:
+            # Go back to parent and add results path
+            script_dir = Path(__file__).parent.absolute()
+            rel_path = self.path.lstrip('/')
+            path = str(script_dir / rel_path)
+        
+        return path
     
     def end_headers(self):
         # Add CORS headers
@@ -58,6 +69,9 @@ def main():
     
     # Create server
     try:
+        # Change to dashboard directory for serving
+        os.chdir(os.path.join(script_dir, DASHBOARD_DIR))
+        
         with socketserver.TCPServer(("0.0.0.0", PORT), CustomHTTPRequestHandler) as httpd:
             print(f"✅ Server started successfully!")
             print(f"🔗 Open in browser: http://localhost:{PORT}")
