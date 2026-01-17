@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arabcap Casting Material Inventory Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="logo">
+                <i class="fas fa-industry"></i>
+                <h1>Arabcap Casting</h1>
+            </div>
+            <div class="header-info">
+                <span class="date" id="currentDate"></span>
+                <span class="status-indicator">
+                    <i class="fas fa-circle"></i> System Active
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard -->
+    <main class="dashboard">
+        <div class="container">
+            
+            <!-- Alert Section -->
+            <div class="alerts-section" id="alertsSection">
+                <!-- Alerts will be dynamically inserted here -->
+            </div>
+
+            <!-- Summary Cards -->
+            <div class="summary-cards">
+                <div class="card card-scrap">
+                    <div class="card-icon">
+                        <i class="fas fa-recycle"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>Total Scrap</h3>
+                        <div class="card-value" id="totalScrap">Loading...</div>
+                        <div class="card-change" id="totalScrapChange"></div>
+                    </div>
+                </div>
+
+                <div class="card card-defect">
+                    <div class="card-icon">
+                        <i class="fas fa-exclamation-triangle"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>Defect Scrap</h3>
+                        <div class="card-value" id="defectScrap">Loading...</div>
+                        <div class="card-change" id="defectScrapChange"></div>
+                    </div>
+                </div>
+
+                <div class="card card-process">
+                    <div class="card-icon">
+                        <i class="fas fa-cogs"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>Process Scrap</h3>
+                        <div class="card-value" id="processScrap">Loading...</div>
+                        <div class="card-change" id="processScrapChange"></div>
+                    </div>
+                </div>
+
+                <div class="card card-prediction">
+                    <div class="card-icon">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <div class="card-content">
+                        <h3>Prediction Accuracy</h3>
+                        <div class="card-value" id="accuracy">Loading...</div>
+                        <div class="card-subtitle">MAE: <span id="mae">-</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Material Inventory Status -->
+            <div class="section-title">
+                <h2><i class="fas fa-warehouse"></i> Material Inventory Status</h2>
+                <button class="btn-refresh" onclick="refreshData()">
+                    <i class="fas fa-sync-alt"></i> Refresh
+                </button>
+            </div>
+
+            <div class="materials-grid" id="materialsGrid">
+                <!-- Material cards will be dynamically inserted here -->
+            </div>
+
+            <!-- Charts Section -->
+            <div class="charts-section">
+                <div class="chart-container">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h3>Scrap Prediction Trends</h3>
+                        <div id="chartAccuracy" style="font-size: 0.9em; color: #64748b; font-weight: 600;"></div>
+                    </div>
+                    <canvas id="scrapTrendChart"></canvas>
+                </div>
+
+                <div class="chart-container">
+                    <h3>Material Consumption Forecast</h3>
+                    <canvas id="consumptionChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Detailed Predictions Table -->
+            <div class="section-title">
+                <h2><i class="fas fa-table"></i> Detailed Predictions</h2>
+            </div>
+            <div class="table-container">
+                <table class="predictions-table" id="predictionsTable">
+                    <thead>
+                        <tr>
+                            <th>Month</th>
+                            <th>Material</th>
+                            <th>Current Stock</th>
+                            <th>Predicted Consumption</th>
+                            <th>Days Until Min</th>
+                            <th>Status</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="predictionsTableBody">
+                        <!-- Table rows will be dynamically inserted here -->
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Alert Modal -->
+    <div class="modal" id="alertModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modalTitle">Alert</h2>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <!-- Alert details -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-primary" onclick="acknowledgeAlert()">Acknowledge</button>
+                <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+  
+
+    <script src="app.js"></script>
+</body>
+</html>
